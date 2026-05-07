@@ -1,5 +1,5 @@
 const express = require("express");
-const mysql = require("mysql2");
+const { Pool } = require("pg");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 
@@ -11,246 +11,328 @@ app.use(bodyParser.json());
 /* =========================
    DATABASE CONNECTION
 ========================= */
-const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "psn@123",        // change if you have password
-  database: "bus"
-});
 
-db.connect((err) => {
-  if (err) {
-    console.log("❌ DB connection failed:", err);
-  } else {
-    console.log("✅ MySQL Connected Successfully");
+const pool = new Pool({
+  host: "db.bgkyntihxncuelwmqnut.supabase.co",
+  port: 5432,
+  user: "postgres",
+  password: "DeEpakMURugan",
+  database: "postgres",
+  ssl: {
+    rejectUnauthorized: false
   }
 });
+
+pool.connect()
+  .then(() => {
+    console.log("✅ PostgreSQL Connected Successfully");
+  })
+  .catch((err) => {
+    console.log("❌ DB connection failed:", err);
+  });
 
 /* =========================
    TEST ROUTE
 ========================= */
+
 app.get("/", (req, res) => {
   res.send("Bus API Running 🚍");
 });
 
+/* =========================
+   USER REGISTER
+========================= */
 
-app.post("/api/register", (req, res) => {
-  const { name, email, password } = req.body;
+app.post("/api/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
 
-  const sql = "INSERT INTO users (name, email, password) VALUES (?, ?, ?)";
+    const sql = `
+      INSERT INTO users (name, email, password)
+      VALUES ($1, $2, $3)
+    `;
 
-  db.query(sql, [name, email, password], (err, result) => {
-    if (err) return res.status(500).json({ message: "Register failed" });
+    await pool.query(sql, [name, email, password]);
 
     res.json({ message: "Register success" });
-  });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Register failed" });
+  }
 });
 
-app.post("/api/login", (req, res) => {
-  const { email, password } = req.body;
+/* =========================
+   USER LOGIN
+========================= */
 
-  const sql = "SELECT * FROM users WHERE email = ? AND password = ?";
+app.post("/api/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-  db.query(sql, [email, password], (err, result) => {
-    if (err) return res.status(500).json({ message: "Login error" });
+    const sql = `
+      SELECT * FROM users
+      WHERE email = $1 AND password = $2
+    `;
 
-    if (result.length > 0) {
+    const result = await pool.query(sql, [email, password]);
+
+    if (result.rows.length > 0) {
       res.json({
         message: "Login success",
-        user: result[0]
+        user: result.rows[0]
       });
     } else {
-      res.status(401).json({ message: "Invalid credentials" });
+      res.status(401).json({
+        message: "Invalid credentials"
+      });
     }
-  });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({
+      message: "Login error"
+    });
+  }
 });
 
-app.post("/api/admin", (req, res) => {
-  const { email, password } = req.body;
+/* =========================
+   ADMIN LOGIN
+========================= */
 
-  const sql = "SELECT * FROM admin WHERE email = ? AND password = ?";
+app.post("/api/admin", async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-  db.query(sql, [email, password], (err, result) => {
-    if (err) return res.status(500).json({ message: "Login error" });
+    const sql = `
+      SELECT * FROM admin
+      WHERE email = $1 AND password = $2
+    `;
 
-    if (result.length > 0) {
+    const result = await pool.query(sql, [email, password]);
+
+    if (result.rows.length > 0) {
       res.json({
         message: "Login success",
-        user: result[0]
+        user: result.rows[0]
       });
     } else {
-      res.status(401).json({ message: "Invalid credentials" });
-    }
-  });
-});
-
-app.get("/api/details", (req, res) => {
-  const sql = `
-    SELECT 
-      b.id AS booking_id,
-      b.from_place,
-      b.to_place,
-      b.total_amount,
-      b.created_at,
-
-      c.id AS customer_id,
-      c.name AS customer_name,
-      c.phone AS customer_phone,
-
-      GROUP_CONCAT(s.seat_number ORDER BY s.seat_number) AS seats
-
-    FROM bookings b
-    JOIN customers c ON b.customer_id = c.id
-    JOIN booked_seats bs ON b.id = bs.booking_id
-    JOIN seats s ON bs.seat_id = s.id
-
-    GROUP BY b.id
-    ORDER BY b.id DESC
-  `;
-
-  db.query(sql, (err, result) => {
-    if (err) {
-      return res.status(500).json({
-        message: "❌ Error fetching bookings",
-        error: err
+      res.status(401).json({
+        message: "Invalid credentials"
       });
     }
+
+  } catch (err) {
+    console.log(err);
+
+    res.status(500).json({
+      message: "Login error"
+    });
+  }
+});
+
+/* =========================
+   BOOKING DETAILS
+========================= */
+
+app.get("/api/details", async (req, res) => {
+  try {
+    const sql = `
+      SELECT 
+        b.id AS booking_id,
+        b.from_place,
+        b.to_place,
+        b.total_amount,
+        b.created_at,
+
+        c.id AS customer_id,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+
+        STRING_AGG(
+          s.seat_number::TEXT,
+          ', ' ORDER BY s.seat_number
+        ) AS seats
+
+      FROM bookings b
+
+      JOIN customers c
+        ON b.customer_id = c.id
+
+      JOIN booked_seats bs
+        ON b.id = bs.booking_id
+
+      JOIN seats s
+        ON bs.seat_id = s.id
+
+      GROUP BY b.id, c.id
+
+      ORDER BY b.id DESC
+    `;
+
+    const result = await pool.query(sql);
 
     res.json({
       message: "✅ Booking details fetched successfully",
-      count: result.length,
-      bookings: result
+      count: result.rows.length,
+      bookings: result.rows
     });
-  });
+
+  } catch (err) {
+    console.log(err);
+
+    res.status(500).json({
+      message: "❌ Error fetching bookings",
+      error: err
+    });
+  }
 });
 
-app.post("/api/book", (req, res) => {
-  const { name, phone, seats, from, to, total_amount } = req.body;
+/* =========================
+   BOOK SEATS
+========================= */
 
-  if (!name || !phone || !seats || seats.length === 0) {
-    return res.status(400).json({ message: "Missing required fields" });
-  }
+app.post("/api/book", async (req, res) => {
+  const client = await pool.connect();
 
-  db.beginTransaction((err) => {
-    if (err) return res.status(500).json(err);
+  try {
+    const { name, phone, seats, from, to, total_amount } = req.body;
 
-    // 1️⃣ Check ONLY selected seats
+    if (!name || !phone || !seats || seats.length === 0) {
+      return res.status(400).json({
+        message: "Missing required fields"
+      });
+    }
+
+    await client.query("BEGIN");
+
+    // 1️⃣ Check selected seats
     const checkSql = `
-      SELECT id 
-      FROM seats 
-      WHERE id IN (?) AND is_booked = TRUE
+      SELECT id
+      FROM seats
+      WHERE id = ANY($1)
+      AND is_booked = TRUE
       FOR UPDATE
     `;
 
-    db.query(checkSql, [seats], (err, result) => {
-      if (err) {
-        return db.rollback(() => res.status(500).json(err));
-      }
+    const checkResult = await client.query(checkSql, [seats]);
 
-      if (result.length > 0) {
-        return db.rollback(() =>
-          res.status(400).json({
-            message: "❌ Some seats are already booked"
-          })
-        );
-      }
+    if (checkResult.rows.length > 0) {
+      await client.query("ROLLBACK");
 
-      // 2️⃣ Insert customer
-      const customerSql =
-        "INSERT INTO customers (name, phone) VALUES (?, ?)";
-
-      db.query(customerSql, [name, phone], (err, customerResult) => {
-        if (err) {
-          return db.rollback(() => res.status(500).json(err));
-        }
-
-        const customerId = customerResult.insertId;
-
-        // 3️⃣ Insert booking
-        const bookingSql = `
-          INSERT INTO bookings (customer_id, from_place, to_place, total_amount)
-          VALUES (?, ?, ?, ?)
-        `;
-
-        db.query(
-          bookingSql,
-          [customerId, from, to, total_amount],
-          (err, bookingResult) => {
-            if (err) {
-              return db.rollback(() => res.status(500).json(err));
-            }
-
-            const bookingId = bookingResult.insertId;
-
-            // 4️⃣ Insert booked seats
-            const seatValues = seats.map((seatId) => [
-              bookingId,
-              seatId
-            ]);
-
-            const insertSeatsSql =
-              "INSERT INTO booked_seats (booking_id, seat_id) VALUES ?";
-
-            db.query(insertSeatsSql, [seatValues], (err) => {
-              if (err) {
-                return db.rollback(() => res.status(500).json(err));
-              }
-
-              // 5️⃣ Mark selected seats as booked
-              const updateSeatsSql = `
-                UPDATE seats 
-                SET is_booked = TRUE 
-                WHERE id IN (?)
-              `;
-
-              db.query(updateSeatsSql, [seats], (err) => {
-                if (err) {
-                  return db.rollback(() => res.status(500).json(err));
-                }
-
-                // ✅ Commit transaction
-                db.commit((err) => {
-                  if (err) {
-                    return db.rollback(() =>
-                      res.status(500).json(err)
-                    );
-                  }
-
-                  res.json({
-                    message: "✅ Booking successful",
-                    bookingId
-                  });
-                });
-              });
-            });
-          }
-        );
+      return res.status(400).json({
+        message: "❌ Some seats are already booked"
       });
+    }
+
+    // 2️⃣ Insert customer
+    const customerSql = `
+      INSERT INTO customers (name, phone)
+      VALUES ($1, $2)
+      RETURNING id
+    `;
+
+    const customerResult = await client.query(customerSql, [
+      name,
+      phone
+    ]);
+
+    const customerId = customerResult.rows[0].id;
+
+    // 3️⃣ Insert booking
+    const bookingSql = `
+      INSERT INTO bookings (
+        customer_id,
+        from_place,
+        to_place,
+        total_amount
+      )
+      VALUES ($1, $2, $3, $4)
+      RETURNING id
+    `;
+
+    const bookingResult = await client.query(bookingSql, [
+      customerId,
+      from,
+      to,
+      total_amount
+    ]);
+
+    const bookingId = bookingResult.rows[0].id;
+
+    // 4️⃣ Insert booked seats
+    for (const seatId of seats) {
+      await client.query(
+        `
+        INSERT INTO booked_seats (
+          booking_id,
+          seat_id
+        )
+        VALUES ($1, $2)
+        `,
+        [bookingId, seatId]
+      );
+    }
+
+    // 5️⃣ Update seats
+    const updateSeatsSql = `
+      UPDATE seats
+      SET is_booked = TRUE
+      WHERE id = ANY($1)
+    `;
+
+    await client.query(updateSeatsSql, [seats]);
+
+    await client.query("COMMIT");
+
+    res.json({
+      message: "✅ Booking successful",
+      bookingId
     });
-  });
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+
+    console.log(err);
+
+    res.status(500).json({
+      message: "Booking failed",
+      error: err
+    });
+
+  } finally {
+    client.release();
+  }
 });
 
-app.get("/api/bus", (req, res) => {
-  const busQuery = "SELECT * FROM bus_info";   
-  const seatQuery = "SELECT * FROM seats";
+/* =========================
+   BUS + SEATS
+========================= */
 
-  db.query(busQuery, (err, buses) => {
-    if (err) return res.status(500).json(err);
+app.get("/api/bus", async (req, res) => {
+  try {
+    const busQuery = `SELECT * FROM bus_info`;
+    const seatQuery = `SELECT * FROM seats`;
 
-    db.query(seatQuery, (err, seats) => {
-      if (err) return res.status(500).json(err);
+    const buses = await pool.query(busQuery);
+    const seats = await pool.query(seatQuery);
 
-      res.json({
-        buses,
-        seats
-      });
+    res.json({
+      buses: buses.rows,
+      seats: seats.rows
     });
-  });
+
+  } catch (err) {
+    console.log(err);
+
+    res.status(500).json(err);
+  }
 });
 
 /* =========================
    START SERVER
 ========================= */
+
 app.listen(5000, () => {
   console.log("🚀 Server running on http://localhost:5000");
 });
