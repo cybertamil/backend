@@ -17,18 +17,14 @@ app.use(cors());
 app.use(bodyParser.json());
 
 /* =========================
-   DATABASE CONNECTION
+   DATABASE CONNECTION (FIXED)
 ========================= */
-const dbUrl = new URL(process.env.DATABASE_URL);
-
 const pool = new Pool({
-  host: dbUrl.hostname,
-  port: Number(dbUrl.port) || 5432,
-  user: dbUrl.username,
-  password: dbUrl.password,
-  database: dbUrl.pathname.replace(/^\//, ""),
-  ssl: { rejectUnauthorized: false },
-  family: 4, // 🔥 forces IPv4 only
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+  family: 4, // 🔥 Forces IPv4 (fix for Render + Supabase)
 });
 
 pool.connect()
@@ -42,7 +38,6 @@ pool.connect()
 /* =========================
    TEST ROUTE
 ========================= */
-
 app.get("/", (req, res) => {
   res.send("Bus API Running 🚍");
 });
@@ -50,7 +45,6 @@ app.get("/", (req, res) => {
 /* =========================
    USER REGISTER
 ========================= */
-
 app.post("/api/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -73,7 +67,6 @@ app.post("/api/register", async (req, res) => {
 /* =========================
    USER LOGIN
 ========================= */
-
 app.post("/api/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -107,7 +100,6 @@ app.post("/api/login", async (req, res) => {
 /* =========================
    ADMIN LOGIN
 ========================= */
-
 app.post("/api/admin", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -132,7 +124,6 @@ app.post("/api/admin", async (req, res) => {
 
   } catch (err) {
     console.log(err);
-
     res.status(500).json({
       message: "Login error"
     });
@@ -142,7 +133,6 @@ app.post("/api/admin", async (req, res) => {
 /* =========================
    BOOKING DETAILS
 ========================= */
-
 app.get("/api/details", async (req, res) => {
   try {
     const sql = `
@@ -163,18 +153,11 @@ app.get("/api/details", async (req, res) => {
         ) AS seats
 
       FROM bookings b
-
-      JOIN customers c
-        ON b.customer_id = c.id
-
-      JOIN booked_seats bs
-        ON b.id = bs.booking_id
-
-      JOIN seats s
-        ON bs.seat_id = s.id
+      JOIN customers c ON b.customer_id = c.id
+      JOIN booked_seats bs ON b.id = bs.booking_id
+      JOIN seats s ON bs.seat_id = s.id
 
       GROUP BY b.id, c.id
-
       ORDER BY b.id DESC
     `;
 
@@ -199,7 +182,6 @@ app.get("/api/details", async (req, res) => {
 /* =========================
    BOOK SEATS
 ========================= */
-
 app.post("/api/book", async (req, res) => {
   const client = await pool.connect();
 
@@ -214,7 +196,6 @@ app.post("/api/book", async (req, res) => {
 
     await client.query("BEGIN");
 
-    // 1️⃣ Check selected seats
     const checkSql = `
       SELECT id
       FROM seats
@@ -233,63 +214,36 @@ app.post("/api/book", async (req, res) => {
       });
     }
 
-    // 2️⃣ Insert customer
-    const customerSql = `
-      INSERT INTO customers (name, phone)
-      VALUES ($1, $2)
-      RETURNING id
-    `;
-
-    const customerResult = await client.query(customerSql, [
-      name,
-      phone
-    ]);
+    const customerResult = await client.query(
+      `INSERT INTO customers (name, phone)
+       VALUES ($1, $2)
+       RETURNING id`,
+      [name, phone]
+    );
 
     const customerId = customerResult.rows[0].id;
 
-    // 3️⃣ Insert booking
-    const bookingSql = `
-      INSERT INTO bookings (
-        customer_id,
-        from_place,
-        to_place,
-        total_amount
-      )
-      VALUES ($1, $2, $3, $4)
-      RETURNING id
-    `;
-
-    const bookingResult = await client.query(bookingSql, [
-      customerId,
-      from,
-      to,
-      total_amount
-    ]);
+    const bookingResult = await client.query(
+      `INSERT INTO bookings (customer_id, from_place, to_place, total_amount)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [customerId, from, to, total_amount]
+    );
 
     const bookingId = bookingResult.rows[0].id;
 
-    // 4️⃣ Insert booked seats
     for (const seatId of seats) {
       await client.query(
-        `
-        INSERT INTO booked_seats (
-          booking_id,
-          seat_id
-        )
-        VALUES ($1, $2)
-        `,
+        `INSERT INTO booked_seats (booking_id, seat_id)
+         VALUES ($1, $2)`,
         [bookingId, seatId]
       );
     }
 
-    // 5️⃣ Update seats
-    const updateSeatsSql = `
-      UPDATE seats
-      SET is_booked = TRUE
-      WHERE id = ANY($1)
-    `;
-
-    await client.query(updateSeatsSql, [seats]);
+    await client.query(
+      `UPDATE seats SET is_booked = TRUE WHERE id = ANY($1)`,
+      [seats]
+    );
 
     await client.query("COMMIT");
 
@@ -316,14 +270,10 @@ app.post("/api/book", async (req, res) => {
 /* =========================
    BUS + SEATS
 ========================= */
-
 app.get("/api/bus", async (req, res) => {
   try {
-    const busQuery = `SELECT * FROM bus_info`;
-    const seatQuery = `SELECT * FROM seats`;
-
-    const buses = await pool.query(busQuery);
-    const seats = await pool.query(seatQuery);
+    const buses = await pool.query(`SELECT * FROM bus_info`);
+    const seats = await pool.query(`SELECT * FROM seats`);
 
     res.json({
       buses: buses.rows,
@@ -338,9 +288,10 @@ app.get("/api/bus", async (req, res) => {
 });
 
 /* =========================
-   START SERVER
+   START SERVER (FIXED)
 ========================= */
+const PORT = process.env.PORT || 5000;
 
-app.listen(5000, () => {
-  console.log("🚀 Server running on http://localhost:5000");
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
