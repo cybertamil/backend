@@ -12,19 +12,18 @@ app.use(bodyParser.json());
    DATABASE CONNECTION
 ========================= */
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  family: 4, // 👈 forces IPv4
-});
-// const pool = new Pool({
-//   host: "db.bgkyntihxncuelwmqnut.supabase.co",
-//   port: 5432,
-//   user: "postgres",
-//   password: "DeEpakMURugan",
-//   database: "postgres",
-//   ssl: {
-//     rejectUnauthorized: false
-//   }
+//   connectionString: process.env.DATABASE_URL,
+//   family: 4, // 👈 forces IPv4
 // });
+  host: "db.bgkyntihxncuelwmqnut.supabase.co",
+  port: 5432,
+  user: "postgres",
+  password: "DeEpakMURugan",
+  database: "postgres",
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
 pool.connect()
   .then(() => {
