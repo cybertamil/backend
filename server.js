@@ -2,38 +2,14 @@ const express = require("express");
 const { Pool } = require("pg");
 const cors = require("cors");
 const bodyParser = require("body-parser");
-const fs = require('fs');
+const dotenv = require("dotenv");
 
-// Load .env file manually
+dotenv.config();
 
-if (fs.existsSync('.env')) {
-  const envContent = fs.readFileSync('.env', 'utf8');
-  envContent.split('\n').forEach(line => {
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith('#')) {
-      const separatorIndex = trimmed.indexOf('=');
-      if (separatorIndex === -1) {
-        const colonIndex = trimmed.indexOf(':');
-        if (colonIndex !== -1) {
-          const key = trimmed.substring(0, colonIndex).trim();
-          let value = trimmed.substring(colonIndex + 1).trim();
-          if (value.startsWith('"') && value.endsWith('"')) {
-            value = value.slice(1, -1);
-          }
-          process.env[key] = value;
-        }
-      } else {
-        const key = trimmed.substring(0, separatorIndex).trim();
-        let value = trimmed.substring(separatorIndex + 1).trim();
-        if (value.startsWith('"') && value.endsWith('"')) {
-          value = value.slice(1, -1);
-        }
-        process.env[key] = value;
-      }
-    }
-  });
+if (!process.env.DATABASE_URL) {
+  console.error("❌ DATABASE_URL is not set");
+  process.exit(1);
 }
-
 
 const app = express();
 
@@ -43,11 +19,17 @@ app.use(bodyParser.json());
 /* =========================
    DATABASE CONNECTION
 ========================= */
+const dbUrl = new URL(process.env.DATABASE_URL);
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  family: 4, // 👈 forces IPv4
+  host: dbUrl.hostname,
+  port: dbUrl.port || 5432,
+  user: dbUrl.username,
+  password: dbUrl.password,
+  database: dbUrl.pathname.replace(/^\//, ""),
+  ssl: { rejectUnauthorized: false },
+  family: 4,
 });
- 
 
 pool.connect()
   .then(() => {
