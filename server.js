@@ -22,7 +22,12 @@ app.use(bodyParser.json());
 const dbUrl = new URL(process.env.DATABASE_URL);
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  host: dbUrl.hostname,
+  port: Number(dbUrl.port) || 5432,
+  user: dbUrl.username,
+  password: dbUrl.password,
+  database: dbUrl.pathname.replace(/^\//, ""),
+  ssl: { rejectUnauthorized: false },
   family: 4, // 🔥 forces IPv4 only
 });
 
